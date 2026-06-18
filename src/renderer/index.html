@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';" />
+  <title>Coding Plan 配额</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- Titlebar -->
+<div class="titlebar">
+  <span class="title">Coding Plan 配额</span>
+  <div class="titlebar-btns">
+    <button id="btn-settings" title="打开配置文件">⚙️</button>
+    <button id="btn-pin"    title="置顶">📌</button>
+    <button id="btn-min"    title="最小化">─</button>
+    <button id="btn-close"  class="close-btn" title="关闭">✕</button>
+  </div>
+</div>
+
+<!-- Main content -->
+<div class="content" id="content">
+
+  <!-- Volcengine Coding Plan section -->
+  <div class="section section-volc" id="section-volc">
+    <div class="section-header">
+      <span class="label"><span class="icon">🚀</span> 火山方舟 Coding Plan</span>
+      <span class="meta" id="volc-status">—</span>
+    </div>
+    <div class="model-list" id="list-volc"></div>
+  </div>
+
+  <!-- MiniMax Coding Plan group header -->
+  <div class="section-group-label" id="section-minimax">
+    <span class="label"><span class="icon">🤖</span> MiniMax Coding Plan</span>
+  </div>
+
+  <!-- 5h interval section -->
+  <div class="section" id="section-interval">
+    <div class="section-header">
+      <span class="label"><span class="icon">⏰</span> 5h 窗口</span>
+      <span class="meta" id="interval-reset">—</span>
+    </div>
+    <div class="model-list" id="list-interval"></div>
+  </div>
+
+  <!-- Weekly section -->
+  <div class="section" id="section-weekly">
+    <div class="section-header">
+      <span class="label"><span class="icon">📅</span> 本周</span>
+      <span class="meta" id="weekly-range">—</span>
+    </div>
+    <div class="model-list" id="list-weekly"></div>
+  </div>
+
+</div>
+
+<!-- Footer -->
+<div class="footer" id="footer">
+  <span class="status-dot idle" id="status-dot"></span>
+  <span id="status-text">等待数据…</span>
+  <span style="margin-left:auto;opacity:0.5">自动 5m</span>
+</div>
+
+<!-- No-config overlay (hidden by default) -->
+<div class="no-config-overlay" id="no-config-overlay" style="display:none">
+  <div class="icon-warn">🔑</div>
+  <div class="msg-title">请配置 Coding Plan</div>
+  <div class="msg-body">
+    已自动创建示例配置文件：<br>
+    <code id="config-path-display">~/.minimax-quota-widget/config.json</code><br><br>
+    请在 <code>providers</code> 中填写对应平台的凭证，<br>
+    保存后点击“刷新”即可。
+  </div>
+  <div class="config-actions">
+    <button class="btn-open-config" id="btn-open-config">📂 打开配置文件</button>
+    <button class="btn-open-dir" id="btn-open-dir">📁 打开文件夹</button>
+  </div>
+</div>
+
+<script>
+// ─── Helpers (duplicated from quota-service for renderer isolation) ──────────
+
+function colorOf(pct) {
+  if (pct <= 0)  return 'red';
+  if (pct < 10)  return 'red';
+  if (pct < 50)  return 'yellow';
+  return 'green';
+}
+
+function formatDuration(ms) {
+  if (ms == null || ms <= 0) return '—';
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function formatBoost(permille) {
+  if (!permille || permille <= 1000) return null;
+  return `+${Math.round((permille - 1000) / 10)}%`;
+}
+
+function formatDateShort(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  return `${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function formatTime(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+}
+
+// ─── DOM refs ────────────────────────────────────────────────────────────────
+
+const listInterval      = document.getElementById('list-interval');
+const listWeekly        = document.getElementById('list-weekly');
+const listVolc          = document.getElementById('list-volc');
+const volcStatusEl      = document.getElementById('volc-status');
+const intervalResetEl   = document.getElementById('interval-reset');
+const weeklyRangeEl     = document.getElementById('weekly-range');
+const statusDot         = document.getElementById('status-dot');
+const statusText        = document.getElementById('status-text');
+const noConfigOverlay   = document.getElementById('no-config-overlay');
+
+// ─── Render functions ────────────────────────────────────────────────────────
+
+function renderModelRow(model, windowType) {
+  const pct   = windowType === 'interval' ? model.intervalRemainPercent
+                                          : model.weeklyRemainPercent;
+  const color = colorOf(pct);
+  const boost = windowType === 'interval' ? model.intervalBoostPermille
+                                          : model.weeklyBoostPermille;
+  const boostLabel = formatBoost(boost);
+
+  const used  = windowType === 'interval' ? model.intervalUsed  : model.weeklyUsed;
+  const total = windowType === 'interval' ? model.intervalTotal : model.weeklyTotal;
+  const reset = windowType === 'interval' ? model.intervalResetsInMs : null;
+
+  // Row
+  const row = document.createElement('div');
+  row.className = 'model-row';
+  row.dataset.model = model.modelName;
+
+  // Color dot
+  const dot = document.createElement('span');
+  dot.className = `color-dot ${color}`;
+  row.appendChild(dot);
+
+  // Model name
+  const name = document.createElement('span');
+  name.className = 'model-name';
+  name.textContent = model.modelName;
+  row.appendChild(name);
+
+  // Percent
+  const pctEl = document.createElement('span');
+  pctEl.className = 'percent-text';
+  pctEl.textContent = `${pct}%`;
+  row.appendChild(pctEl);
+
+  // Bar
+  const barC = document.createElement('div');
+  barC.className = 'bar-container';
+  const tooltip = total > 0
+    ? `${used} / ${total}${reset ? `（重置于 ${formatDuration(reset)}）` : ''}`
+    : model.modelName;
+  barC.title = tooltip;
+  const barF = document.createElement('div');
+  barF.className = `bar-fill ${color}`;
+  barF.style.width = `${pct}%`;
+  barC.appendChild(barF);
+  row.appendChild(barC);
+
+  // Boost tag
+  if (boostLabel) {
+    const tag = document.createElement('span');
+    tag.className = 'boost-tag';
+    tag.textContent = boostLabel;
+    row.appendChild(tag);
+  }
+
+  // Detail row (expandable)
+  const detail = document.createElement('div');
+  detail.className = 'detail-row';
+  detail.innerHTML = `
+    <span>已用: ${used.toLocaleString()}</span>
+    <span>配额: ${total.toLocaleString()}</span>
+    ${reset ? `<span>重置: ${formatDuration(reset)}</span>` : ''}
+    ${boostLabel ? `<span>突增: ${boostLabel}</span>` : ''}
+  `;
+
+  // Toggle detail on click
+  row.addEventListener('click', () => {
+    detail.classList.toggle('open');
+  });
+
+  return { row, detail };
+}
+
+function renderSection(listEl, models, windowType) {
+  listEl.innerHTML = '';
+  for (const model of models) {
+    const { row, detail } = renderModelRow(model, windowType);
+    listEl.appendChild(row);
+    listEl.appendChild(detail);
+  }
+}
+
+function updateUI(models) {
+  // Sections
+  renderSection(listInterval, models, 'interval');
+  renderSection(listWeekly,   models, 'weekly');
+
+  // Interval reset countdown (from general model)
+  const general = models.find(m => m.modelName === 'general');
+  if (general?.intervalResetsInMs != null) {
+    intervalResetEl.textContent = `重置于 ${formatDuration(general.intervalResetsInMs)}`;
+  }
+
+  // Weekly date range
+  if (general?.weeklyStart && general?.weeklyEnd) {
+    weeklyRangeEl.textContent = `${formatDateShort(general.weeklyStart)} → ${formatDateShort(general.weeklyEnd)}`;
+  }
+
+  // Status
+  noConfigOverlay.style.display = 'none';
+  statusDot.className = 'status-dot online';
+  statusText.textContent = `在线 | 上次刷新 ${formatTime(Date.now())}`;
+}
+
+function showError(payload) {
+  console.log('[renderer] showError called with:', JSON.stringify(payload));
+  const error = typeof payload === 'string' ? payload : payload.error;
+  if (error === 'NO_CONFIG') {
+    noConfigOverlay.style.display = 'flex';
+    // Show actual config path
+    const pathDisplay = document.getElementById('config-path-display');
+    if (payload.configPath && pathDisplay) {
+      pathDisplay.textContent = payload.configPath;
+    }
+    statusDot.className = 'status-dot offline';
+    statusText.textContent = '未配置 — 请编辑 API Key 后刷新';
+    return;
+  }
+  noConfigOverlay.style.display = 'none';
+  statusDot.className = 'status-dot offline';
+  const short = error.length > 40 ? error.slice(0, 40) + '…' : error;
+  statusText.textContent = `离线 | ${short}`;
+}
+
+// ─── Titlebar buttons ────────────────────────────────────────────────────────
+
+document.getElementById('btn-settings').addEventListener('click', () => {
+  window.electronAPI?.openConfigFile();
+});
+document.getElementById('btn-pin').addEventListener('click', () => {
+  window.electronAPI?.toggleAlwaysOnTop();
+});
+document.getElementById('btn-min').addEventListener('click', () => {
+  window.electronAPI?.minimizeWindow();
+});
+document.getElementById('btn-close').addEventListener('click', () => {
+  window.electronAPI?.closeWindow();
+});
+
+// ─── IPC bindings ────────────────────────────────────────────────────────────
+
+if (window.electronAPI) {
+  console.log('[renderer] electronAPI available, registering IPC listeners');
+
+  window.electronAPI.onQuotaUpdate((payload) => {
+    console.log('[renderer] quota:update received:', JSON.stringify(payload));
+    if (payload.ok) {
+      updateUI(payload.data);
+    } else {
+      showError(payload);
+    }
+  });
+
+  window.electronAPI.onRefresh(() => {
+    console.log('[renderer] quota:refresh triggered');
+    window.electronAPI.requestRefresh();
+  });
+
+  // Volcengine Coding Plan updates
+  window.electronAPI.onVolcUpdate((payload) => {
+    console.log('[renderer] volc:update received:', JSON.stringify(payload));
+    if (payload.ok) {
+      updateVolcUI(payload.data);
+    } else {
+      showVolcError(payload.error);
+    }
+  });
+} else {
+  console.error('[renderer] window.electronAPI is UNDEFINED — preload failed!');
+}
+
+// ─── Countdown timer (update reset display every 30s) ───────────────────────
+
+let lastModels = null;
+
+setInterval(() => {
+  if (!lastModels) return;
+  const general = lastModels.find(m => m.modelName === 'general');
+  if (general?.intervalResetsInMs != null) {
+    general.intervalResetsInMs = Math.max(0, general.intervalResetsInMs - 30_000);
+    intervalResetEl.textContent = `重置于 ${formatDuration(general.intervalResetsInMs)}`;
+  }
+}, 30_000);
+
+// Patch updateUI to cache lastModels
+const _origUpdateUI = updateUI;
+updateUI = function(models) {
+  lastModels = JSON.parse(JSON.stringify(models)); // deep clone
+  _origUpdateUI(models);
+};
+
+// ─── Config overlay buttons ───────────────────────────────────────────────
+
+document.getElementById('btn-open-config')?.addEventListener('click', () => {
+  window.electronAPI?.openConfigFile();
+});
+document.getElementById('btn-open-dir')?.addEventListener('click', () => {
+  window.electronAPI?.openConfigDir();
+});
+
+// ─── Volcengine Coding Plan rendering ──────────────────────────────────────
+
+function renderVolcRow(quota) {
+  const remainPct = Math.round(quota.remainPercent);
+  const color     = colorOf(remainPct);
+
+  const row = document.createElement('div');
+  row.className = 'model-row';
+  row.dataset.level = quota.level;
+
+  // Color dot
+  const dot = document.createElement('span');
+  dot.className = `color-dot ${color}`;
+  row.appendChild(dot);
+
+  // Level label
+  const name = document.createElement('span');
+  name.className = 'model-name volc-level';
+  name.textContent = quota.label;
+  row.appendChild(name);
+
+  // Percent (show remaining)
+  const pctEl = document.createElement('span');
+  pctEl.className = 'percent-text';
+  pctEl.textContent = `${remainPct}%`;
+  row.appendChild(pctEl);
+
+  // Bar (remaining)
+  const barC = document.createElement('div');
+  barC.className = 'bar-container';
+  const resetLabel = quota.resetsInMs ? `（重置: ${formatDuration(quota.resetsInMs)}）` : '';
+  barC.title = `已用 ${quota.usedPercent.toFixed(1)}%${resetLabel}`;
+  const barF = document.createElement('div');
+  barF.className = `bar-fill ${color}`;
+  barF.style.width = `${remainPct}%`;
+  barC.appendChild(barF);
+  row.appendChild(barC);
+
+  // Reset tag
+  if (quota.resetsInMs != null && quota.resetsInMs > 0) {
+    const tag = document.createElement('span');
+    tag.className = 'volc-reset-tag';
+    tag.textContent = formatDuration(quota.resetsInMs);
+    row.appendChild(tag);
+  }
+
+  return row;
+}
+
+function updateVolcUI(data) {
+  listVolc.innerHTML = '';
+  for (const q of data.quotas) {
+    listVolc.appendChild(renderVolcRow(q));
+  }
+  volcStatusEl.textContent = data.status === 'Running' ? '运行中' : data.status;
+}
+
+function showVolcError(error) {
+  if (error === 'NO_VOLC_CONFIG') {
+    listVolc.innerHTML = '<div class="volc-empty">未配置火山方舟 AK/SK</div>';
+    volcStatusEl.textContent = '未配置';
+  } else {
+    const short = (error || '').length > 40 ? error.slice(0, 40) + '…' : error;
+    listVolc.innerHTML = `<div class="volc-empty">${short}</div>`;
+    volcStatusEl.textContent = '异常';
+  }
+}
+</script>
+</body>
+</html>
