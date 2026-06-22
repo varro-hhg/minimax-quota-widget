@@ -54,6 +54,8 @@ function createWindow() {
   mainWindow.webContents.on('did-finish-load', () => {
     console.log('[main] renderer did-finish-load → calling refreshQuota');
     refreshQuota();
+    // Send initial pin state to renderer
+    mainWindow.webContents.send('window:pinStateChanged', isAlwaysOnTop);
   });
 
   mainWindow.once('ready-to-show', () => {
@@ -153,7 +155,10 @@ function toggleWindow() {
 
 function setAlwaysOnTop(value) {
   isAlwaysOnTop = value;
-  if (mainWindow) mainWindow.setAlwaysOnTop(isAlwaysOnTop);
+  if (mainWindow) {
+    mainWindow.setAlwaysOnTop(isAlwaysOnTop);
+    mainWindow.webContents.send('window:pinStateChanged', isAlwaysOnTop);
+  }
   rebuildTrayMenu();
 }
 

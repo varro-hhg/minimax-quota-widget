@@ -298,6 +298,14 @@ if (window.electronAPI) {
       showVolcError(payload.error);
     }
   });
+
+  // Pin button state feedback
+  const btnPin = document.getElementById('btn-pin');
+  window.electronAPI.onPinStateChanged((isPinned) => {
+    btnPin.classList.toggle('btn-pin-active', isPinned);
+    btnPin.classList.toggle('btn-pin-inactive', !isPinned);
+    btnPin.title = isPinned ? '取消置顶' : '置顶';
+  });
 } else {
   console.error('[renderer] window.electronAPI is UNDEFINED — preload failed!');
 }

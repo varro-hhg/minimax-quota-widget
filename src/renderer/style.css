@@ -72,6 +72,15 @@ body {
   background: rgba(239, 68, 68, 0.7);
 }
 
+.titlebar-btns .btn-pin-active {
+  background: rgba(99, 102, 241, 0.35);
+  color: #a5b4fc;
+}
+
+.titlebar-btns .btn-pin-inactive {
+  opacity: 0.45;
+}
+
 /* ── Main content area ────────────────────────────────────── */
 
 .content {

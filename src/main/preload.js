@@ -5,10 +5,11 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   // Receive from main
-  onQuotaUpdate:   (cb) => ipcRenderer.on('quota:update',        (_, data) => cb(data)),
-  onVolcUpdate:    (cb) => ipcRenderer.on('volc:update',         (_, data) => cb(data)),
-  onRefresh:       (cb) => ipcRenderer.on('quota:refresh',       ()        => cb()),
-  onSwitchRegion:  (cb) => ipcRenderer.on('quota:switchRegion',  ()        => cb()),
+  onQuotaUpdate:      (cb) => ipcRenderer.on('quota:update',          (_, data) => cb(data)),
+  onVolcUpdate:       (cb) => ipcRenderer.on('volc:update',           (_, data) => cb(data)),
+  onRefresh:          (cb) => ipcRenderer.on('quota:refresh',         ()        => cb()),
+  onSwitchRegion:     (cb) => ipcRenderer.on('quota:switchRegion',    ()        => cb()),
+  onPinStateChanged:  (cb) => ipcRenderer.on('window:pinStateChanged', (_, v)    => cb(v)),
 
   // Send to main
   requestRefresh:    () => ipcRenderer.send('quota:requestRefresh'),
