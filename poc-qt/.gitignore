@@ -1,0 +1,32 @@
+# Build outputs
+build/
+debug/
+release/
+*.o
+*.obj
+moc_*
+qrc_*
+ui_*
+
+# Qt Creator
+*.user
+*.user.*
+*.pro.user*
+*.qmake.stash
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# Makefile (qmake generated)
+Makefile
+Makefile.*
+object_script.*
+
+# Distribution
+dist/
+
+# IDE
+.vscode/
+.idea/
