@@ -20,7 +20,6 @@
 #include <QUrl>
 #include <QVBoxLayout>
 #include <cmath>
-
 namespace {
 constexpr int kCornerRadius = 18;
 }
@@ -46,7 +45,34 @@ void QuotaView::setupUi()
         "font-size: 14px; font-weight: 700;");
     titleBar->addWidget(title);
     titleBar->addStretch();
+
+    // ── Pin button ──
+    pinBtn_ = new QPushButton(QString::fromUtf8("\xf0\x9f\x93\x8c"), this);
+    pinBtn_->setFixedSize(28, 28);
+    pinBtn_->setCursor(Qt::PointingHandCursor);
+    pinBtn_->setStyleSheet(
+        "QPushButton { background: rgba(99,102,241,0.4); border: none; border-radius: 14px; "
+        "font-size: 14px; }"
+        "QPushButton:hover { background: rgba(99,102,241,0.6); }");
+    pinBtn_->setToolTip(QString::fromUtf8("取消置顶"));
+    titleBar->addWidget(pinBtn_);
+    titleBar->addSpacing(4);
+
+    // ── Close button ──
+    closeBtn_ = new QPushButton(QString::fromUtf8("\xe2\x9c\x95"), this);
+    closeBtn_->setFixedSize(28, 28);
+    closeBtn_->setCursor(Qt::PointingHandCursor);
+    closeBtn_->setStyleSheet(
+        "QPushButton { background: rgba(255,255,255,0.1); border: none; border-radius: 14px; "
+        "color: rgba(255,255,255,0.7); font-size: 13px; font-weight: 600; }"
+        "QPushButton:hover { background: rgba(239,68,68,0.8); color: white; }");
+    closeBtn_->setToolTip(QString::fromUtf8("关闭到托盘"));
+    titleBar->addWidget(closeBtn_);
+
     root->addLayout(titleBar);
+
+    connect(pinBtn_, &QPushButton::clicked, this, &QuotaView::pinToggled);
+    connect(closeBtn_, &QPushButton::clicked, this, &QuotaView::closeRequested);
 
     // ── Volcengine section ──
     volcSection_ = new QWidget(this);
@@ -515,4 +541,21 @@ QString QuotaView::formatDateShort(qint64 epochMs)
     return QString("%1-%2")
         .arg(d.date().month(), 2, 10, QChar('0'))
         .arg(d.date().day(),   2, 10, QChar('0'));
+}
+
+void QuotaView::setPinned(bool pinned)
+{
+    isPinned_ = pinned;
+    if (pinBtn_) {
+        pinBtn_->setStyleSheet(pinned
+            ? "QPushButton { background: rgba(99,102,241,0.4); border: none; border-radius: 14px; "
+              "font-size: 14px; }"
+              "QPushButton:hover { background: rgba(99,102,241,0.6); }"
+            : "QPushButton { background: rgba(255,255,255,0.1); border: none; border-radius: 14px; "
+              "font-size: 14px; }"
+              "QPushButton:hover { background: rgba(255,255,255,0.2); }");
+        pinBtn_->setToolTip(pinned
+            ? QString::fromUtf8("取消置顶")
+            : QString::fromUtf8("置顶"));
+    }
 }

@@ -8,35 +8,30 @@
 #include <QMenu>
 #include <QPainter>
 #include <QPixmap>
+#include <QFont>
 #include <QSystemTrayIcon>
 
-namespace {
-
-QIcon makeFallbackIcon()
+static QIcon makeFallbackIcon()
 {
     QPixmap pm(64, 64);
     pm.fill(Qt::transparent);
     QPainter p(&pm);
     p.setRenderHint(QPainter::Antialiasing);
-    p.setBrush(QColor(0x33, 0x70, 0xFF));
-    p.setPen(Qt::NoPen);
-    p.drawRoundedRect(pm.rect().adjusted(4, 4, -4, -4), 12, 12);
-    p.setPen(Qt::white);
+    p.setPen(Qt::black);
     QFont f = p.font();
     f.setBold(true);
-    f.setPointSize(28);
+    f.setPointSize(36);
     p.setFont(f);
     p.drawText(pm.rect(), Qt::AlignCenter, QString::fromUtf8("M"));
     return QIcon(pm);
 }
-
-}  // namespace
 
 TrayIcon::TrayIcon(QObject* parent)
     : QObject(parent)
     , icon_(new QSystemTrayIcon(this))
     , menu_(new QMenu())
 {
+    // Use programmatic icon — guaranteed visible, no file dependency
     icon_->setIcon(makeFallbackIcon());
     icon_->setToolTip(QString::fromUtf8("Coding Plan 配额"));
 

@@ -33,7 +33,9 @@ MainWindow::MainWindow(QWidget* parent)
     setWindowTitle(QString::fromUtf8("Coding Plan 配额"));
     setWindowIcon(QIcon(":/icon.png"));
     setAttribute(Qt::WA_TranslucentBackground);
-    setWindowFlags(Qt::FramelessWindowHint | Qt::Tool);
+    Qt::WindowFlags flags = Qt::FramelessWindowHint | Qt::Tool;
+    if (isPinned_) flags |= Qt::WindowStaysOnTopHint;
+    setWindowFlags(flags);
     setFixedSize(kWidth, kHeight);  // 固定大小，不可拉伸
 
     // 屏幕右上角
@@ -55,6 +57,14 @@ MainWindow::MainWindow(QWidget* parent)
 
     view_->setConfigPath(config_->configPath(), config_->wasCreated());
     layout->addWidget(view_);
+
+    connect(view_, &QuotaView::closeRequested, this, &MainWindow::onCloseClicked);
+    connect(view_, &QuotaView::pinToggled,     this, &MainWindow::togglePin);
+    connect(view_, &QuotaView::openConfigRequested, this, [this]() {
+        if (config_) config_->openConfigFile();
+    });
+    // 同步初始置顶状态到 view
+    if (view_) view_->setPinned(isPinned_);
 
     connect(minimax_, &MiniMaxClient::quotaReady,  this, &MainWindow::onMiniMaxReady);
     connect(minimax_, &MiniMaxClient::quotaError,  this, &MainWindow::onMiniMaxError);
@@ -199,8 +209,16 @@ void MainWindow::togglePin()
 {
     isPinned_ = !isPinned_;
     setWindowFlag(Qt::WindowStaysOnTopHint, isPinned_);
+    // setWindowFlag 需要重建原生窗口才能生效，hide+show 强制重建
+    hide();
     show();
     if (tray_) tray_->setPinned(isPinned_);
+    if (view_) view_->setPinned(isPinned_);
+}
+
+void MainWindow::onCloseClicked()
+{
+    hide();
 }
 
 // ── Painting / drag ──

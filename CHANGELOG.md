@@ -15,6 +15,16 @@
 - **GUI 体验优化** — `setFixedSize` 锁定窗口尺寸 + `subsystem=windows` 无控制台 + `RC_ICONS` 嵌入图标
 - **8 个模块** — `MainWindow` / `QuotaConfig` / `MiniMaxClient` / `VolcengineClient` / `QuotaView` / `ProgressBar` / `TrayIcon`
 
+#### 2026-06-26 修复（托盘 / 置顶 / 标题栏按钮）
+
+- **托盘消失修复** — Qt 默认 `quitOnLastWindowClosed=true`，关闭窗口后整个应用退出导致托盘销毁。`main.cpp` 加 `app.setQuitOnLastWindowClosed(false)` 让进程在窗口隐藏后保活
+- **初始置顶不生效修复** — 构造函数 `setWindowFlags(FramelessWindowHint | Tool)` 没包含 `WindowStaysOnTopHint`，虽然 `isPinned_ = true` 但状态从未应用到原生窗口。改为按 `isPinned_` 动态加入 flag
+- **置顶切换不生效修复** — `setWindowFlag()` 必须重建原生 HWND 才能让 `WS_EX_TOPMOST` 生效，单独调 `show()` 在窗口已可见时不会触发重建。`togglePin()` 中改为 `hide()` + `show()` 强制重建
+- **托盘图标空白修复** — `TrayIcon` 之前被改成从 `:/icon.ico` 资源加载，但项目没有 `.qrc` 文件，且 `QIcon(path)` 不验证文件存在 → Windows 拿到空 pixmap 不绘制。恢复程序化 `QPainter` 绘制，黑色粗体 `M`（36pt）on 透明背景，零外部资源依赖
+- **标题栏按钮接线补齐** — `QuotaView` 之前加了 📌 / ✕ 按钮，但 `MainWindow` 没 `connect` 它们的 `pinToggled` / `closeRequested` 信号。补上 connect + `view_->setPinned(isPinned_)` 初始状态同步
+- **Win11 行为说明** — 新托盘图标默认折叠到 `^` 溢出面板（不是 bug），需手动从设置里开启常驻
+- **自动化验证** — 用 PowerShell + Win32 `GetWindowLong` 查 `WS_EX_TOPMOST` exStyle 位，5/5 测试通过（初始置顶 / 切换 OFF / 切换 ON / 关闭后进程存活 / 关闭后窗口隐藏）
+
 ### 修复与优化
 
 - **倒计时显示优化**：`formatDuration` 新增天数级别，超过 24 小时显示 `Xd Yh`（如 `3d 5h`），不再显示不直观的 `72h 30m`

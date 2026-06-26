@@ -46,6 +46,9 @@ private slots:
     void onTrayOpenConfig();
     void onTrayQuit();
 
+    // title bar
+    void onCloseClicked();
+
 private:
     void scheduleNextRefresh(qint64 generalResetMs);
     void togglePin();

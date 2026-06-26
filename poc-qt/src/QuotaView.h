@@ -11,6 +11,7 @@
 #include <QWidget>
 
 class QLabel;
+class QPushButton;
 class ProgressBar;
 class QVBoxLayout;
 
@@ -26,6 +27,7 @@ public:
     void setVolcData(VolcUsage usage);
     void setStatus(const QString& message, bool online, bool idle = false);
     void setError(const QString& message, bool isNoConfig);
+    void setPinned(bool pinned);
 
     void resizeEvent(QResizeEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
@@ -36,6 +38,11 @@ public:
     static QString formatDuration(qint64 ms);
     static QString formatBoost(int permille);
     static QString formatDateShort(qint64 epochMs);
+
+signals:
+    void closeRequested();
+    void pinToggled();
+    void openConfigRequested();
 
 private:
     void setupUi();
@@ -58,6 +65,11 @@ private:
     // Footer
     QLabel*   statusDot_        = nullptr;
     QLabel*   statusText_       = nullptr;
+
+    // Title bar buttons
+    QPushButton* pinBtn_        = nullptr;
+    QPushButton* closeBtn_      = nullptr;
+    bool         isPinned_      = true;
 
     // Data cache
     QList<MiniMaxModel> models_;

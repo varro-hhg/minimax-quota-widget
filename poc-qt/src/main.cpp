@@ -20,6 +20,7 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     app.setApplicationName("MiniMax Quota Widget");
     app.setOrganizationName("MiniMaxQuotaWidget");
+    app.setQuitOnLastWindowClosed(false);  // 隐藏窗口后保持托盘存活
 
     MainWindow w;
     w.show();
