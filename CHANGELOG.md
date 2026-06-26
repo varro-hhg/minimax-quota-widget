@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+### Qt 5 C++ 重写版（分支 `explore/qt-cpp`）
+
+- **全功能完成** — MiniMax + 火山方舟双平台配额监控，全模块编译通过，0 警告 0 错误
+- **体积缩减 50%** — exe 238KB（对比 Electron 68MB -99.6%），总产物 34MB（对比 Electron 68MB -50%）
+- **内存缩减 65%** — 25MB 实测（对比 Electron 60-80MB）
+- **HTTP 用 QProcess + curl** — 绕过 Qt 5.13 SSL 兼容问题
+- **V4 签名修复** — canonical query string 遗漏 `Action` / `Version` 参数导致 `SignatureDoesNotMatch`，已修复
+- **BashArray 自引用崩溃修复** — `signRequest()` 中局部变量名遮蔽全局 `const char*`，加 `::` 作用域限定修复
+- **GUI 体验优化** — `setFixedSize` 锁定窗口尺寸 + `subsystem=windows` 无控制台 + `RC_ICONS` 嵌入图标
+- **8 个模块** — `MainWindow` / `QuotaConfig` / `MiniMaxClient` / `VolcengineClient` / `QuotaView` / `ProgressBar` / `TrayIcon`
+
 ### 修复与优化
 
 - **倒计时显示优化**：`formatDuration` 新增天数级别，超过 24 小时显示 `Xd Yh`（如 `3d 5h`），不再显示不直观的 `72h 30m`

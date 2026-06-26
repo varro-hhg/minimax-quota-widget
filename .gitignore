@@ -6,3 +6,6 @@ dist/
 .qoder/
 gh.exe
 .pm-*.json
+
+# Neutralino PoC (abandoned approach)
+poc-neutralino/

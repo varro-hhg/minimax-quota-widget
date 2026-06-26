@@ -1,81 +1,217 @@
 // poc-qt/src/MainWindow.cpp
-// PoC: 透明圆角窗口 + 液态玻璃背景 + 可拖动标题栏
+// 主窗口：装配 QuotaView / Clients / Tray / Timers
 
 #include "MainWindow.h"
 
+#include "MiniMaxClient.h"
+#include "QuotaConfig.h"
+#include "QuotaView.h"
+#include "TrayIcon.h"
+#include "VolcengineClient.h"
+
 #include <QApplication>
-#include <QLabel>
+#include <QCloseEvent>
+#include <QDateTime>
+#include <QDebug>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QScreen>
+#include <QSystemTrayIcon>
+#include <QTimer>
 #include <QVBoxLayout>
 
 namespace {
 constexpr int kWidth        = 460;
-constexpr int kHeight       = 500;
+constexpr int kHeight       = 580;
 constexpr int kCornerRadius = 18;
-}  // namespace
+}
 
 MainWindow::MainWindow(QWidget* parent)
     : QWidget(parent)
 {
-    setWindowTitle(QStringLiteral("Coding Plan 配额"));
-
-    // 透明 + 无边框 + 工具窗口（不在任务栏出现）
+    setWindowTitle(QString::fromUtf8("Coding Plan 配额"));
+    setWindowIcon(QIcon(":/icon.png"));
     setAttribute(Qt::WA_TranslucentBackground);
-    setWindowFlags(Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint);
+    setWindowFlags(Qt::FramelessWindowHint | Qt::Tool);
+    setFixedSize(kWidth, kHeight);  // 固定大小，不可拉伸
 
-    resize(kWidth, kHeight);
-
-    // 放到屏幕右上角
+    // 屏幕右上角
     if (auto* screen = QApplication::primaryScreen()) {
         const QRect avail = screen->availableGeometry();
         move(avail.right() - kWidth - 24, avail.top() + 24);
     }
 
     auto* layout = new QVBoxLayout(this);
-    layout->setContentsMargins(20, 20, 20, 20);
-    layout->setSpacing(10);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
 
-    auto* title = new QLabel(QStringLiteral("CODING PLAN 配额"), this);
-    title->setStyleSheet(
-        "color: rgba(255,255,255,0.75);"
-        "font-size: 12px;"
-        "font-weight: 700;"
-        "letter-spacing: 2px;");
-    layout->addWidget(title);
+    // ── Logic ──
+    config_   = new QuotaConfig(this);
+    view_     = new QuotaView(this);
+    minimax_  = new MiniMaxClient(this);
+    volc_     = new VolcengineClient(this);
+    tray_     = new TrayIcon(this);
 
-    statusLabel_ = new QLabel(
-        QStringLiteral("✅ Qt 5.13.1 PoC 启动成功\n\n"
-                       "下一步：\n"
-                       "  • 接入 MiniMax / 火山方舟 API\n"
-                       "  • 配置文件管理\n"
-                       "  • 系统托盘\n"
-                       "  • 进度条 UI"),
-        this);
-    statusLabel_->setStyleSheet(
-        "color: rgba(255,255,255,0.85);"
-        "font-size: 12px;"
-        "line-height: 1.6;");
-    statusLabel_->setWordWrap(true);
-    layout->addWidget(statusLabel_);
-    layout->addStretch();
+    view_->setConfigPath(config_->configPath(), config_->wasCreated());
+    layout->addWidget(view_);
+
+    connect(minimax_, &MiniMaxClient::quotaReady,  this, &MainWindow::onMiniMaxReady);
+    connect(minimax_, &MiniMaxClient::quotaError,  this, &MainWindow::onMiniMaxError);
+    connect(volc_,    &VolcengineClient::usageReady, this, &MainWindow::onVolcReady);
+    connect(volc_,    &VolcengineClient::usageError, this, &MainWindow::onVolcError);
+
+    // ── Tray wiring ──
+    connect(tray_, &TrayIcon::showRequested,       this, &MainWindow::onTrayShow);
+    connect(tray_, &TrayIcon::refreshRequested,    this, &MainWindow::onTrayRefresh);
+    connect(tray_, &TrayIcon::togglePinRequested,  this, &MainWindow::onTrayTogglePin);
+    connect(tray_, &TrayIcon::openConfigRequested, this, &MainWindow::onTrayOpenConfig);
+    connect(tray_, &TrayIcon::quitRequested,       this, &MainWindow::onTrayQuit);
+
+    if (QSystemTrayIcon::isSystemTrayAvailable()) {
+        tray_->setVisible(true);
+    } else {
+        qWarning() << "[main] System tray not available";
+    }
+
+    // ── Timers ──
+    countdownTimer_ = new QTimer(this);
+    countdownTimer_->setInterval(30 * 1000);
+    connect(countdownTimer_, &QTimer::timeout, this, &MainWindow::onCountdownTick);
+    countdownTimer_->start();
+
+    refreshTimer_ = new QTimer(this);
+    refreshTimer_->setSingleShot(true);
+    connect(refreshTimer_, &QTimer::timeout, this, &MainWindow::refreshQuota);
+
+    // 启动后 1 秒拉取一次
+    QTimer::singleShot(1000, this, &MainWindow::refreshQuota);
 }
+
+MainWindow::~MainWindow() = default;
+
+// ── Refresh flow ──
+
+void MainWindow::refreshQuota()
+{
+    qDebug() << "[main] refreshQuota fired";
+    if (!view_) return;
+    view_->setStatus(QString::fromUtf8("正在刷新…"), true, true);
+
+    QJsonValue mm = config_->minimax();
+    QJsonValue vv = config_->volcengine();
+
+    bool hasMiniMax = mm.isObject();
+    bool hasVolc    = vv.isObject();
+
+    if (!hasMiniMax && !hasVolc) {
+        view_->setError(QString::fromUtf8("未配置 — 请编辑 API Key 后刷新"),
+                        /*isNoConfig=*/true);
+        scheduleNextRefresh(-1);
+        return;
+    }
+
+    if (hasMiniMax) {
+        minimax_->fetch(mm.toObject(), 10'000);
+    } else {
+        onMiniMaxError(QString::fromUtf8("MiniMax not configured"));
+    }
+
+    if (hasVolc) {
+        volc_->fetch(vv.toObject(), 10'000);
+    } else {
+        onVolcError(QString::fromUtf8("NO_VOLC_CONFIG"));
+    }
+}
+
+void MainWindow::onMiniMaxReady(QList<MiniMaxModel> models)
+{
+    view_->setMiniMaxData(models);
+    view_->setStatus(
+        QString::fromUtf8("在线 | 上次刷新 %1").arg(QDateTime::currentDateTime().toString("HH:mm:ss")),
+        true);
+
+    qint64 next = 0;
+    for (const auto& m : models) {
+        if (m.modelName == "general") { next = m.intervalResetsInMs; break; }
+    }
+    scheduleNextRefresh(next);
+}
+
+void MainWindow::onMiniMaxError(QString msg)
+{
+    view_->setError(msg, msg == QString::fromUtf8("MiniMax API key missing") || msg == QString::fromUtf8("未配置"));
+    scheduleNextRefresh(-1);
+}
+
+void MainWindow::onVolcReady(VolcUsage usage)
+{
+    view_->setVolcData(usage);
+    view_->setStatus(
+        QString::fromUtf8("在线 | 上次刷新 %1").arg(QDateTime::currentDateTime().toString("HH:mm:ss")),
+        true);
+}
+
+void MainWindow::onVolcError(QString msg)
+{
+    if (msg == QString::fromUtf8("NO_VOLC_CONFIG")) {
+        view_->setVolcData(VolcUsage{});  // 留空
+        return;
+    }
+    view_->setError(msg, false);
+}
+
+void MainWindow::onCountdownTick()
+{
+    if (view_) view_->tickCountdown();
+}
+
+// ── Tray handlers ──
+
+void MainWindow::onTrayShow()
+{
+    if (isVisible()) hide();
+    else { show(); raise(); activateWindow(); }
+}
+
+void MainWindow::onTrayRefresh()
+{
+    refreshQuota();
+}
+
+void MainWindow::onTrayTogglePin()
+{
+    if (tray_) togglePin();
+}
+
+void MainWindow::onTrayOpenConfig()
+{
+    if (config_) config_->openConfigFile();
+}
+
+void MainWindow::onTrayQuit()
+{
+    isQuitting_ = true;
+    qApp->quit();
+}
+
+void MainWindow::togglePin()
+{
+    isPinned_ = !isPinned_;
+    setWindowFlag(Qt::WindowStaysOnTopHint, isPinned_);
+    show();
+    if (tray_) tray_->setPinned(isPinned_);
+}
+
+// ── Painting / drag ──
 
 void MainWindow::paintEvent(QPaintEvent* /*event*/)
 {
-    // 圆角玻璃背景（半透明深色 + 边框）
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
-
     QPainterPath path;
     path.addRoundedRect(rect(), kCornerRadius, kCornerRadius);
-
-    // 主体背景
     p.fillPath(path, QColor(18, 18, 28, 230));
-
-    // 1px 高光边框
     p.setPen(QPen(QColor(255, 255, 255, 30), 1));
     p.setBrush(Qt::NoBrush);
     p.drawPath(path);
@@ -104,4 +240,29 @@ void MainWindow::mouseMoveEvent(QMouseEvent* event)
 #endif
         event->accept();
     }
+}
+
+void MainWindow::leaveEvent(QEvent* /*event*/)
+{
+    dragging_ = false;
+}
+
+void MainWindow::closeEvent(QCloseEvent* event)
+{
+    if (!isQuitting_) {
+        // Hide to tray instead of quit
+        event->ignore();
+        hide();
+    } else {
+        event->accept();
+    }
+}
+
+void MainWindow::scheduleNextRefresh(qint64 generalResetMs)
+{
+    if (!refreshTimer_) return;
+    refreshTimer_->stop();
+    // 如果 general reset 在 2 分钟内，5 秒后刷新；否则 5 分钟
+    int ms = (generalResetMs > 0 && generalResetMs < 120'000) ? 5'000 : 5 * 60'000;
+    refreshTimer_->start(ms);
 }

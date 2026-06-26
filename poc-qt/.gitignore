@@ -8,6 +8,14 @@ moc_*
 qrc_*
 ui_*
 
+# Test files
+test_*.cpp
+test_*.exe
+debug_test.cpp
+
+# Binaries
+*.exe
+
 # Qt Creator
 *.user
 *.user.*
